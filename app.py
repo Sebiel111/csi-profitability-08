@@ -2,17 +2,13 @@
 import streamlit as st
 import pandas as pd
 
+# CSS for styling inputs and table
 st.markdown(
     '''
     <style>
-        html, body {
-            background-color: #f9f9f9;
-        }
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
-            font-size: 20px;
-        }
+        body, html { background-color: #f9f9f9; }
+        .block-container { padding: 2rem; font-size: 20px; }
+        h1 { color: #1c1c1e; }
         .stButton button {
             background-color: #4F46E5;
             color: white;
@@ -21,14 +17,13 @@ st.markdown(
             padding: 1rem 2rem;
             font-size: 1.5rem;
         }
-        .stNumberInput input[type=number]::-webkit-inner-spin-button, 
-        .stNumberInput input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
+        label, .stSlider, .stTextInput label, .stTextInput input {
+            font-size: 1.5rem !important;
         }
-        .stNumberInput input[type=number] {
-            -moz-appearance: textfield;
+        .stTextInput input {
+            text-align: right;
         }
+        .stSlider { padding: 1rem 0; }
         table.custom {
             width: 100%;
             border-collapse: collapse;
@@ -45,124 +40,144 @@ st.markdown(
             padding: 10px;
             border-bottom: 1px solid #eee;
         }
-        table.custom td.left {
-            text-align: left;
-        }
+        table.custom td.left { text-align: left; }
         table.custom tr.total-row {
             font-weight: bold;
             background-color: #eeeeee;
         }
     </style>
-    ''', unsafe_allow_html=True
+    ''',
+    unsafe_allow_html=True
 )
 
-st.title("CSI Profitability Simulator")
-
-language = st.selectbox("Language", ["English", "Español", "Français", "Deutsch", "Português", "Italiano", "Svenska"])
-
-def format_number(n, lang):
-    if lang in ["English", "Svenska"]:
-        return f"{n:,}"
-    else:
-        return f"{n:,}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def get_csi_percentages(csi_score):
-    if csi_score >= 901:
-        return 0.74, 0.35
-    elif 801 <= csi_score <= 900:
-        return 0.51, 0.24
-    elif 701 <= csi_score <= 800:
-        return 0.32, 0.19
-    else:
-        return 0.14, 0.16
-
-def simulate_profitability(csi_score, initial_customers, service_profit_per_year,
-                           ownership_years, warranty_years, vehicle_sale_profit,
-                           start_year=2026, end_year=2040):
-    years = list(range(start_year, end_year + 1))
-    service_customers = {year: 0 for year in years}
-    repeat_customers = {year: 0 for year in years}
-    total_profit = {year: 0 for year in years}
-
-    customer_waves = [{"year": 2025, "count": initial_customers}]
-    service_return_pct, repeat_purchase_pct = get_csi_percentages(csi_score)
-
-    for year in years:
-        new_waves = []
-        for wave in customer_waves:
-            age = year - wave["year"]
-            if 1 <= age <= warranty_years:
-                service = wave["count"] * service_return_pct
-                service_customers[year] += service
-            if age == ownership_years:
-                repeats = wave["count"] * repeat_purchase_pct
-                repeat_customers[year] += repeats
-                new_waves.append({"year": year, "count": repeats})
-        customer_waves.extend(new_waves)
-        total_profit[year] = (
-            round(service_customers[year]) * service_profit_per_year +
-            round(repeat_customers[year]) * vehicle_sale_profit
-        )
-
-    df = pd.DataFrame({
-        "Year": years,
-        "Service customers": [round(service_customers[y]) for y in years],
-        "Repeat purchases": [round(repeat_customers[y]) for y in years],
-        "Total profit": [round(total_profit[y]) for y in years]
-    })
-
-    totals = {
-        "Year": "Total",
-        "Service customers": int(df["Service customers"].sum()),
-        "Repeat purchases": int(df["Repeat purchases"].sum()),
-        "Total profit": int(df["Total profit"].sum())
+# Translation dictionary for English and Swedish
+labels = {
+    "English": {
+        "language": "Language",
+        "title": "CSI Profitability Simulator",
+        "csi_score": "CSI score (out of 1,000)",
+        "sample_size": "Sample size (Volvo Selekt sales)",
+        "ownership_duration": "Ownership duration (years)",
+        "warranty_duration": "Volvo Selekt warranty (years)",
+        "vehicle_profit": "Vehicle sale profit",
+        "service_profit": "Service profit per year per customer",
+        "run": "Run simulation",
+        "results": "Results",
+        "year": "Year",
+        "service_customers": "Service customers",
+        "repeat_purchases": "Repeat purchases",
+        "total_profit": "Total profit",
+        "total": "Total",
+        "download": "Download CSV"
+    },
+    "Svenska": {
+        "language": "Språk",
+        "title": "CSI Lönsamhetssimulator",
+        "csi_score": "CSI-poäng (av 1 000)",
+        "sample_size": "Volvo Selekt-försäljning",
+        "ownership_duration": "Ägarperiod (år)",
+        "warranty_duration": "Volvo Selekt-garanti (år)",
+        "vehicle_profit": "Vinst per bilförsäljning",
+        "service_profit": "Servicevinst per kund och år",
+        "run": "Kör simulering",
+        "results": "Resultat",
+        "year": "År",
+        "service_customers": "Servicekunder",
+        "repeat_purchases": "Återköp",
+        "total_profit": "Total vinst",
+        "total": "Totalt",
+        "download": "Ladda ner CSV"
     }
-    df = pd.concat([pd.DataFrame([totals]), df], ignore_index=True)
-    return df
+}
 
-def render_table_html(df, lang):
-    rows = ""
+# Language selector
+language = st.selectbox(labels["English"]["language"], list(labels.keys()))
+L = labels[language]
+
+st.title(L["title"])
+
+# Number formatting and parsing
+def format_number(n):
+    return f"{n:,}" if language == "English" else f"{n:,}".replace(","," ")
+
+def parse_number(s):
+    # Remove spaces and non-breaking spaces
+    return int(str(s).replace(" ","").replace(" ","").replace(",","").replace(".",""))
+
+def get_csi_percentages(score):
+    if score >= 901: return 0.74, 0.35
+    if score >= 801: return 0.51, 0.24
+    if score >= 701: return 0.32, 0.19
+    return 0.14, 0.16
+
+def simulate(csi, count, s_profit, own_years, warranty, v_profit):
+    years = list(range(2026, 2041))
+    service = {y:0 for y in years}
+    repeat = {y:0 for y in years}
+    total = {y:0 for y in years}
+    waves = [{"year":2025, "count":count}]
+    s_pct, r_pct = get_csi_percentages(csi)
+    for y in years:
+        new = []
+        for w in waves:
+            age = y - w["year"]
+            if 1 <= age <= warranty:
+                service[y] += w["count"] * s_pct
+            if age == own_years:
+                r = w["count"] * r_pct
+                repeat[y] += r
+                new.append({"year": y, "count": r})
+        waves.extend(new)
+        total[y] = round(service[y])*s_profit + round(repeat[y])*v_profit
+    df = pd.DataFrame({
+        L["year"]: years,
+        L["service_customers"]: [round(service[y]) for y in years],
+        L["repeat_purchases"]: [round(repeat[y]) for y in years],
+        L["total_profit"]: [round(total[y]) for y in years]
+    })
+    tot = {
+        L["year"]: L["total"],
+        L["service_customers"]: int(df[L["service_customers"]].sum()),
+        L["repeat_purchases"]: int(df[L["repeat_purchases"]].sum()),
+        L["total_profit"]: int(df[L["total_profit"]].sum())
+    }
+    return pd.concat([pd.DataFrame([tot]), df], ignore_index=True)
+
+def render_table(df):
+    html = f"<table class='custom'><thead><tr>"
+    for col in df.columns:
+        html += f"<th>{col}</th>"
+    html += "</tr></thead><tbody>"
     for _, row in df.iterrows():
-        row_class = ' class="total-row"' if row["Year"] == "Total" else ""
-        rows += f'<tr{row_class}>'
-        rows += f'<td class="left">{row["Year"]}</td>'
-        rows += f'<td>{format_number(row["Service customers"], lang)}</td>'
-        rows += f'<td>{format_number(row["Repeat purchases"], lang)}</td>'
-        rows += f'<td>{format_number(row["Total profit"], lang)}</td>'
-        rows += '</tr>'
-    return f'''
-    <table class="custom">
-        <thead>
-            <tr><th>Year</th><th>Service customers</th><th>Repeat purchases</th><th>Total profit</th></tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
-    '''
+        cls = " class='total-row'" if row[df.columns[0]]==L["total"] else ""
+        html += f"<tr{cls}>"
+        html += f"<td class='left'>{row[df.columns[0]]}</td>"
+        for val in row[1:]:
+            html += f"<td>{format_number(val)}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+    return html
 
+# Inputs as text_input for full control
 with st.form("form"):
-    csi_score = st.slider("CSI score (out of 1,000)", 0, 1000, 870)
-    col1, col2 = st.columns(2)
-    with col1:
-        initial_customers = st.number_input("Sample size (Volvo Selekt sales)", min_value=1, value=100)
-        ownership_duration = st.number_input("Ownership duration (years)", min_value=1, value=2)
-        vehicle_profit = st.number_input("Vehicle sale profit", min_value=0, value=1225)
-    with col2:
-        service_profit = st.number_input("Service profit per year per customer", min_value=0, value=350)
-        warranty_duration = st.number_input("Volvo Selekt warranty (years)", min_value=1, value=3)
-    submitted = st.form_submit_button("Run simulation")
+    csi_score = st.text_input(L["csi_score"], format_number(870))
+    sample = st.text_input(L["sample_size"], format_number(100))
+    own = st.text_input(L["ownership_duration"], format_number(2))
+    vp = st.text_input(L["vehicle_profit"], format_number(1225))
+    sp = st.text_input(L["service_profit"], format_number(350))
+    warranty = st.text_input(L["warranty_duration"], format_number(3))
+    go = st.form_submit_button(L["run"])
 
-if submitted:
-    df = simulate_profitability(
-        csi_score,
-        initial_customers,
-        service_profit,
-        ownership_duration,
-        warranty_duration,
-        vehicle_profit
-    )
-    st.subheader("Results")
-    st.markdown(render_table_html(df, language), unsafe_allow_html=True)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV", csv, "csi_profitability_results.csv", "text/csv")
+if go:
+    # parse inputs
+    csi = int(csi_score)
+    count = parse_number(sample)
+    own_years = parse_number(own)
+    vprofit = parse_number(vp)
+    sprofit = parse_number(sp)
+    warranty_years = parse_number(warranty)
+    # simulate and render
+    df = simulate(csi, count, sprofit, own_years, warranty_years, vprofit)
+    st.subheader(L["results"])
+    st.markdown(render_table(df), unsafe_allow_html=True)
+    st.download_button(L["download"], df.to_csv(index=False).encode('utf-8'), "csi_profitability.csv", "text/csv")
